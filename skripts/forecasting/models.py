@@ -1,4 +1,5 @@
 import pandas as pd
+import pmdarima as pm
 
 class Model:
     df = pd.DataFrame()
@@ -10,8 +11,16 @@ class Model:
         # ToDo: Ksenia (last value)
         return None
 
-    def auto_arima(self) -> pd.DataFrame:
+    def auto_arima(self, ts, seasonal=False, stepwise=True) -> pd.DataFrame:
         # ToDo Flo (auto arima from pmdarima)
+        model = pm.auto_arima(
+            self.df,
+            seasonal=seasonal,
+            stepwise=stepwise,     
+            trace=True         
+        )
+
+
         return None
     
     def LSTM(self) -> pd.DataFrame:
