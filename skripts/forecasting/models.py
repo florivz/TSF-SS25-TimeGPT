@@ -7,6 +7,26 @@ from dotenv import load_dotenv
 import os
 
 class Model:
+    """
+    Class:
+    Put in a DataFrame with columns 'ts' (timestamp) and 'y' (target variable) when initializing.
+    Splitting will be done in class.
+
+    Methods:
+    base_line() -> pd.DataFrame
+        Baseline forecasting method (e.g., last value). Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
+    auto_arima() -> pd.DataFrame
+        Forecasts using the auto_arima model from pmdarima. Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
+    LSTM() -> pd.DataFrame
+        Forecasts using an LSTM neural network. Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
+    prophet() -> pd.DataFrame
+        Forecasts using Facebook Prophet. Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
+    times_fm() -> pd.DataFrame
+        Forecasts using TimesFM model. Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
+    time_gpt() -> pd.DataFrame
+        Forecasts using the Nixtla TimeGPT model. Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
+    """
+
 
     def __init__(self, df):
         # Splitting manually to avoid index issues
@@ -61,7 +81,6 @@ class Model:
             trace=False, 
             suppress_warnings=True
         )
-        print(model.summary())
         end_arima = time.time()
         duration_arima = end_arima - start_arima
         print("ARIMA Training Duration: ", duration_arima)
@@ -81,6 +100,7 @@ class Model:
         # Fit Prophet model
         prophet_model = Prophet(yearly_seasonality='auto', daily_seasonality='auto', weekly_seasonality='auto')
 
+        print("Starting Prophet Training...\n")
         start_prophet = time.time()
         prophet_model.fit(df_train_prophet)
         end_prophet = time.time()
@@ -104,6 +124,7 @@ class Model:
 
         print(nixtla_client.validate_api_key())
 
+        print("Starting TimeGPT Training...\n")
         start_gpt = time.time()
         timegpt_fcst_df = nixtla_client.forecast(
             df=self.df_train.reset_index(drop=True),
