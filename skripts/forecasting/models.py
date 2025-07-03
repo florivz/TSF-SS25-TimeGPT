@@ -245,7 +245,30 @@ class Model:
         print("Nixtla Prediction Time: ", period_gpt)
 
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': timegpt_fcst_df['TimeGPT'].values}) 
-    
+
+#-------------------------------------------------------
+#--------------Helper Method----------------------------
+#-------------------------------------------------------
+    def health_check(self, df, ts_col="ts", y_col="y"):
+        df = self.df.copy()
+        df[ts_col] = pd.to_datetime(df[ts_col], errors="coerce")
+
+        length      = len(df)
+        duplicates  = df.duplicated(ts_col).sum()
+        missing     = df[[ts_col, y_col]].isna().sum().sum()
+
+        inferred = pd.infer_freq(df[ts_col])
+        if inferred is None:                     
+            inferred = df[ts_col].sort_values().diff().mode()[0]
+
+        step       = inferred if isinstance(inferred, pd.Timedelta) else pd.Timedelta(inferred)
+        irregular  = (df[ts_col].sort_values().diff().dropna() != step).sum()
+
+        print(f"Len = {length} | duplicates = {duplicates}")
+        print(f"Missing values (ts + y) = {missing}")
+        print(f"Inferred frequency = {inferred}")
+        print(f"Irregular {inferred} gaps = {irregular}")
+
 # Datasets Flo: 1.1 & 1.3
 
 # Datasets Ksenia: 1.2 & 1.4
