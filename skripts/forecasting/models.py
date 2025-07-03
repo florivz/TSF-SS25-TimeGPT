@@ -53,7 +53,7 @@ class Model:
             self.df_test = df_test
             self.df_train = df_train
 
-        self.health_check(self.df)
+        #self.health_check(self.df)
 
 
     def base_line(self) -> pd.DataFrame:
@@ -178,7 +178,7 @@ class Model:
         fcst = prophet_model.predict(future)
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': fcst['yhat'].values}) 
     
-    def times_fm(self, freq="D") -> pd.DataFrame:
+    def times_fm(self, freq) -> pd.DataFrame:
         df_train_fm = self.df_train.copy()
         df_train_fm = df_train_fm.rename(columns={"ts": "ds", "y": "y"})
         df_train_fm["unique_id"] = "series_1"
@@ -192,7 +192,7 @@ class Model:
             hparams=timesfm.TimesFmHparams(
                 per_core_batch_size=32,
                 context_len=512,       
-                horizon_len=len(self.df_test),       
+                horizon_len=len(self.df_test), 
                 input_patch_len=32,    
                 output_patch_len=128,  
                 num_layers=50,         
@@ -209,9 +209,7 @@ class Model:
             num_jobs=-1,  
         )
 
-        forecast_df = forecast_df.iloc[:len(self.df_test['ts'])]
-
-        return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': forecast_df['timesfm'].values}) 
+        return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': forecast_df["timesfm"].values})
     
     def time_gpt(self) -> pd.DataFrame:
         nixtla_train = self.df_train.copy()
