@@ -1,5 +1,6 @@
 import tensorflow as tf
 import numpy as np
+import matplotlib.pyplot as plt
 
 class DataWindow():
     '''the initialization function of the class assigns the variables and manages the indices of the inputs and the labels.'''
@@ -78,7 +79,7 @@ class DataWindow():
             sequence_stride=1,
             # shuffle the sequences. Keep in mind that the data is still in chronological order. 
             # we are simply shuffling the order of the sequences, which makes the model more robust (see lecture slides).
-            shuffle=False,
+            shuffle=True,
             # set the number of sequences in a single batch.
             batch_size=32
         )
@@ -92,56 +93,40 @@ class DataWindow():
         
         predictions = model(inputs)
         return predictions
-            
-    def predict_sequential(self, model, initial_window, steps, scaler=None):
-        """
-        Sequentially predict 'steps' values, starting from initial_window (np.array or DataFrame),
-        appending each prediction to the input for the next step. Optionally inverse-transform if scaler is provided.
-        Assumes label_width=1.
-        Returns: np.array of predictions (shape: [steps, features])
-        """
-        input_seq = initial_window.copy()
-        preds = []
-        for step in range(steps):
-            # Prepare input: last input_width rows
-            if isinstance(input_seq, np.ndarray):
-                x_input = input_seq[-self.input_width:]
+    
+    def plot(self, model=None, plot_col='y', max_subplots=3):
+        # get the data
+        inputs, labels = self.sample_batch
+        
+        plt.figure(figsize=(12, 8))
+        plot_col_index = self.column_indices[plot_col]
+        max_n = min(max_subplots, len(inputs))
+        
+        for n in range(max_n):
+            plt.subplot(3, 1, n+1)
+            plt.ylabel(f'{plot_col} [scaled]')
+            # Plot the inputs. They will appear as a continuous blue line with dots . !
+            plt.plot(self.input_indices, inputs[n, :, plot_col_index],
+                     label='Inputs', marker='.', zorder=-10)
+
+            if self.label_columns:
+                label_col_index = self.label_columns_indices.get(plot_col, None)
             else:
-                x_input = input_seq.iloc[-self.input_width:].values
-            x_input = np.expand_dims(x_input, axis=0)  # shape (1, input_width, features)
-            print(f"Step {step+1} - Input window to model:\n", x_input)
-            # Predict next step
-            y_pred = model.predict(x_input)
-            print(f"Step {step+1} - Model prediction (scaled):", y_pred)
-            # If scaler is provided, inverse transform only the predicted value
-            if scaler is not None:
-                # Prepare for inverse transform: copy last row, replace y with prediction
-                if isinstance(input_seq, np.ndarray):
-                    last_row = input_seq[-1].copy()
-                else:
-                    last_row = input_seq.iloc[-1].values.copy()
-                y_index = self.column_indices[self.label_columns[0]] if self.label_columns else 0
-                last_row[y_index] = y_pred.flatten()[0]
-                y_inv = scaler.inverse_transform([last_row])
-                y_pred_val = y_inv[0, y_index]
-                print(f"Step {step+1} - Model prediction (inversed):", y_pred_val)
-            else:
-                y_pred_val = y_pred.flatten()[0]
-            # Append prediction to sequence
-            if isinstance(input_seq, np.ndarray):
-                new_row = input_seq[-1].copy()
-                # For multi-feature: copy all, update only y
-                y_index = self.column_indices[self.label_columns[0]] if self.label_columns else 0
-                new_row[y_index] = y_pred.flatten()[0] if scaler is None else scaler.transform([[y_pred_val if i == y_index else new_row[i] for i in range(len(new_row))]])[0][y_index]
-                input_seq = np.vstack([input_seq, new_row])
-            else:
-                new_row = input_seq.iloc[-1].copy()
-                y_index = self.column_indices[self.label_columns[0]] if self.label_columns else 0
-                new_row.iloc[y_index] = y_pred.flatten()[0] if scaler is None else scaler.transform([[y_pred_val if i == y_index else new_row.iloc[i] for i in range(len(new_row))]])[0][y_index]
-                input_seq = input_seq.append(new_row, ignore_index=True)
-            print(f"Step {step+1} - New row appended to sequence:", new_row)
-            preds.append(y_pred_val)
-        return np.array(preds)
+                label_col_index = plot_col_index
+
+            if label_col_index is None:
+                continue
+            # Plot the labels (actual values). They will appear as green squares.
+            plt.scatter(self.label_indices, labels[n, :, label_col_index],
+                        edgecolors='k', marker='s', label='Labels', c='green', s=64)
+            if model is not None:
+                predictions = model(inputs)
+            # Plot the predictions. They will appear as red crosses.
+            plt.scatter(self.label_indices, predictions[n, :, label_col_index],
+                        marker='X', edgecolors='k', label='Predictions', c='red', s=64)
+
+            if n == 0: 
+                plt.legend()
 
     ''' Define some properties to apply the make_dataset() function on the training, validation and testing sets.'''
     @property

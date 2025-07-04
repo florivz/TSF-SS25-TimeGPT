@@ -9,14 +9,13 @@ import numpy as np
 from tensorflow.keras.models import Sequential
 from tensorflow.keras.layers import LSTM, Dense
 from tensorflow.keras.callbacks import EarlyStopping
-from tensorflow.keras.metrics import MeanSquaredError, MeanAbsoluteError
-from tensorflow.keras.optimizers import Adam
 from window import DataWindow
-from sklearn.model_selection import TimeSeriesSplit
 import timesfm
 from util import convert_time_stamp
 import tensorflow as tf
 from sklearn.preprocessing import MinMaxScaler
+import numpy as np
+import pandas as pd
 
 class Model:
     """
@@ -37,6 +36,8 @@ class Model:
         Forecasts using TimesFM model. Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
     time_gpt() -> pd.DataFrame
         Forecasts using the Nixtla TimeGPT model. Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
+    LSTM_no_window() -> pd.DataFrame
+        Forecasts using an LSTM neural network without using DataWindow. Returns a DataFrame with columns 'ts' and 'yhat' for predictions.
     """
 
 
@@ -87,24 +88,49 @@ class Model:
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': fcst.values}) 
 
     
-    def LSTM(self, input_width=24, label_width=1, shift=1) -> pd.DataFrame:
-        df_train = self.df_train
-        df_test = self.df_test
-        df_train = convert_time_stamp(df_train.copy(), 'ts')
-        df_test = convert_time_stamp(df_test.copy(), 'ts')
+    def LSTM(self, input_width=None, label_width=None, shift=1, sequence_stride=1, auto_window=True) -> pd.DataFrame:
+        orig = self.df_test['ts'].copy()
+        df_train = self.df_train.copy()
+        df_test = self.df_test.copy()
+        df_train = convert_time_stamp(df_train, 'ts')
+        df_test = convert_time_stamp(df_test, 'ts')
+
+        # Auto windowing logic
+        if auto_window:
+            # Try to infer frequency and set window sizes accordingly
+            n = len(df_train)
+            # Heuristic: use 10% of train set as input window, 2% as label window, min 12/max 168
+            input_width = input_width or max(12, min(168, n // 10))
+            label_width = label_width or max(1, min(24, n // 50))
+        else:
+            input_width = input_width or 24
+            label_width = label_width or 1
 
         split_index = int(len(df_train) * 0.8)
-        train_df = df_train.iloc[:split_index]
-        val_df = df_train.iloc[split_index:]
+        train_df = df_train.iloc[:split_index].copy()
+        val_df = df_train.iloc[split_index:].copy()
 
         scaler = MinMaxScaler()
-        scaler.fit(train_df)
+        scaler.fit(train_df[['y']])
+        train_df['y'] = scaler.transform(train_df[['y']])
+        val_df['y'] = scaler.transform(val_df[['y']])
+        df_test['y'] = scaler.transform(df_test[['y']])
 
-        train_df[train_df.columns] = scaler.transform(train_df)
-        val_df[val_df.columns] = scaler.transform(val_df)
-        df_test[df_test.columns] = scaler.transform(df_test)
+        class FlexibleDataWindow(DataWindow):
+            def make_dataset(self, data):
+                data = np.array(data, dtype=np.float32)
+                ds = tf.keras.preprocessing.timeseries_dataset_from_array(
+                    data=data,
+                    targets=None,
+                    sequence_length=self.total_window_size,
+                    sequence_stride=sequence_stride,
+                    shuffle=False,
+                    batch_size=32
+                )
+                ds = ds.map(self.split_to_inputs_labels)
+                return ds
 
-        window = DataWindow(
+        window = FlexibleDataWindow(
             input_width=input_width,
             label_width=label_width,
             shift=shift,
@@ -137,28 +163,19 @@ class Model:
             verbose=2
         )
 
-        y_pred_scaled = []
-        for batch_x, _ in test_ds:
-            batch_pred = model.predict(batch_x)
-            y_pred_scaled.append(batch_pred)
-        y_pred_scaled = np.concatenate(y_pred_scaled, axis=0)
+        # Prediction
+        predictions = []
+        for batch_inputs, _ in test_ds:
+            batch_preds = model(batch_inputs)
+            batch_preds = batch_preds.numpy().reshape(-1)
+            predictions.extend(batch_preds)
 
-        # Inverse transform predictions
-        feature_columns = df_test.columns
-        y_index = list(feature_columns).index("y")
-        y_pred_full = np.zeros((y_pred_scaled.shape[0], len(feature_columns)))
-        y_pred_full[:, y_index] = y_pred_scaled.flatten()
-        y_pred_inverted = scaler.inverse_transform(y_pred_full)
-        y_pred_original = y_pred_inverted[:, y_index]
+        # Inverse transform only y
+        inv_preds = scaler.inverse_transform(np.array(predictions).reshape(-1, 1)).flatten()
+        # Align ts with the actual predictions (use self.df_test['ts'])
+        ts_aligned = orig[-len(inv_preds):].reset_index(drop=True)
+        return pd.DataFrame({'ts': ts_aligned, 'yhat': inv_preds})
 
-        # Get correct timestamps for predictions
-        ts_values = self.df_test['ts'].reset_index(drop=True)
-        ts_values = ts_values[input_width + shift - 1:input_width + shift - 1 + len(y_pred_original)].reset_index(drop=True)
-
-        return pd.DataFrame({
-            'ts': ts_values,
-            'yhat': y_pred_original
-        })
     
     def prophet(self, freq) -> pd.DataFrame:
         # Split into train and test using the same indices as before
@@ -178,28 +195,30 @@ class Model:
         fcst = prophet_model.predict(future)
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': fcst['yhat'].values}) 
     
-    def times_fm(self, freq) -> pd.DataFrame:
+    def times_fm(self, freq, num_layers=50, checkpoint="google/timesfm-2.0-500m-pytorch", context_len=512, use_positional_embedding=False) -> pd.DataFrame:
         df_train_fm = self.df_train.copy()
         df_train_fm = df_train_fm.rename(columns={"ts": "ds", "y": "y"})
         df_train_fm["unique_id"] = "series_1"
         df_train_fm = df_train_fm[["unique_id", "ds", "y"]]
 
-        # tscval = TimeSeriesSplit(n_splits=5, test_size=int(0.1 * len(df_train_fm)))
-        # train_idx, test_idx = list(tscval.split(df_train_fm))[-1] # takes the last split
-        # train_df, _ = df_train_fm.iloc[train_idx], df_train_fm.iloc[test_idx]
+        mean_y = df_train_fm['y'].mean()
+        std_y = df_train_fm['y'].std()
+        df_train_fm['y'] = (df_train_fm['y'] - mean_y) / std_y
 
         tfm = timesfm.TimesFm(
             hparams=timesfm.TimesFmHparams(
                 per_core_batch_size=32,
-                context_len=512,       
-                horizon_len=len(self.df_test), 
-                input_patch_len=32,    
-                output_patch_len=128,  
-                num_layers=50,         
-                model_dims=1280,    
-                use_positional_embedding=False
+                horizon_len=len(self.df_test),
+                input_patch_len=32,
+                output_patch_len=128,
+                num_layers=num_layers,
+                context_len=context_len,
+                model_dims=1280,
+                use_positional_embedding=use_positional_embedding
             ),
-            checkpoint=timesfm.TimesFmCheckpoint(huggingface_repo_id="google/timesfm-2.0-500m-pytorch"),
+            checkpoint=timesfm.TimesFmCheckpoint(
+                huggingface_repo_id=checkpoint),
+                #huggingface_repo_id="google/timesfm-1.0-200m-pytorch"),
         )
 
         forecast_df = tfm.forecast_on_df(
@@ -209,6 +228,7 @@ class Model:
             num_jobs=-1,  
         )
 
+        forecast_df["timesfm"] = (forecast_df["timesfm"] * std_y) + mean_y
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': forecast_df["timesfm"].values})
     
     def time_gpt(self, horizon) -> pd.DataFrame:
