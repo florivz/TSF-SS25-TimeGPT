@@ -72,7 +72,8 @@ class Model:
             test=None, seasonal_test=None,
             start_p=0, start_q=0, max_p=1, max_q=1,
             start_P=0, start_Q=0, max_P=1, max_Q=1,
-            max_order=4,
+            max_order=2,
+            maxiter=4,
             stepwise=True,
             trace=False, 
             suppress_warnings=True
@@ -133,12 +134,12 @@ class Model:
         return result_df
 
     
-    def prophet(self, freq) -> pd.DataFrame:
+    def prophet(self) -> pd.DataFrame:
         # Split into train and test using the same indices as before
         df_train_prophet = self.df_train.rename(columns={'ts': 'ds'})
 
         # Fit Prophet model
-        prophet_model = Prophet(yearly_seasonality='auto', daily_seasonality='auto', weekly_seasonality='auto')
+        prophet_model = Prophet(yearly_seasonality='auto', daily_seasonality='auto', weekly_seasonality='auto', growth='flat')
 
         start_prophet = time.time()
         prophet_model.fit(df_train_prophet)
@@ -147,7 +148,7 @@ class Model:
         print('Prophet Training duration: ', duration_prophet)
 
         # Forecast
-        future = prophet_model.make_future_dataframe(periods=len(self.df_test), freq=freq, include_history=False)
+        future = prophet_model.make_future_dataframe(periods=len(self.df_test), include_history=False)
         fcst = prophet_model.predict(future)
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': fcst['yhat'].values}) 
     
@@ -181,7 +182,7 @@ class Model:
         )
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': forecast_df["timesfm"].values})
     
-    def time_gpt(self, horizon) -> pd.DataFrame:
+    def time_gpt(self) -> pd.DataFrame:
         nixtla_train = self.df_train.copy()
         nixtla_train['unique_id'] = 'id1'
         nixtla_test = self.df_test.copy()
@@ -202,7 +203,7 @@ class Model:
             df=nixtla_train,
             model='timegpt-1-long-horizon',
             id_col='unique_id',
-            h=horizon,
+            h=len(self.df_test),
             #freq='30min',
             time_col='ts',
             target_col='y',
@@ -212,7 +213,7 @@ class Model:
         period_gpt = end_gpt - start_gpt
         print("Nixtla Prediction Time: ", period_gpt)
 
-        return pd.DataFrame({'ts': self.df_test['ts'][:36], 'yhat': timegpt_fcst_df['TimeGPT'].values}) 
+        return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': timegpt_fcst_df['TimeGPT'].values}) 
 
 #-------------------------------------------------------
 #--------------Helper Method----------------------------
