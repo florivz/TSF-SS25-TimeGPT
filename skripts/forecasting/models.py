@@ -86,32 +86,37 @@ class Model:
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': fcst.values}) 
     
     def LSTM(self, input_width=None, epoch=2) -> pd.DataFrame:
-        df = self.df
-        all_y = df["y"].values
-        dataset=all_y.reshape(-1, 1)
-        dataset = dataset[1:]
-        # normalize the dataset
-        scaler = MinMaxScaler(feature_range=(0, 1))
-        dataset = scaler.fit_transform(dataset)
+        # Use train and test data from __init__
+        train_df = self.df_train
+        test_df = self.df_test
+        
+        all_y_train = train_df["y"].values.reshape(-1, 1)
+        all_y_test = test_df["y"].values.reshape(-1, 1)
 
-        # split into train and test sets, 50% test data, 50% training data
-        train_size = int(len(dataset) * 0.8)
-        orig = df.iloc[train_size:len(dataset),:]["ts"].copy().reset_index(drop=True)
-        train, test = dataset[0:train_size,:], dataset[train_size:len(dataset),:]
+        # normalize the dataset based on train only
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        train_scaled = scaler.fit_transform(all_y_train)
+        test_scaled = scaler.transform(all_y_test)
 
         # Use look_back as input_width if provided, else default to 240
         look_back = input_width or 240
 
         def create_dataset(dataset, look_back=1):
             dataX, dataY = [], []
-            for i in range(len(dataset)-look_back-1):
-                a = dataset[i:(i+look_back), 0]
+            for i in range(len(dataset) - look_back):
+                a = dataset[i:(i + look_back), 0]
                 dataX.append(a)
                 dataY.append(dataset[i + look_back, 0])
             return np.array(dataX), np.array(dataY)
 
-        trainX, trainY = create_dataset(train, look_back)
-        testX, testY = create_dataset(test, look_back)
+        # Prepare trainX, trainY
+        trainX, trainY = create_dataset(train_scaled, look_back)
+        # For test, concatenate last part of train with test for context
+        if len(train_scaled) >= look_back:
+            test_context = np.concatenate([train_scaled[-look_back:], test_scaled], axis=0)
+        else:
+            test_context = np.concatenate([train_scaled, test_scaled], axis=0)
+        testX, _ = create_dataset(test_context, look_back)
 
         # Reshape input to be [samples, time steps, features]
         trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
@@ -129,7 +134,8 @@ class Model:
         testPredict = model.predict(testX)
         testPredict = scaler.inverse_transform(testPredict)
 
-        ts_aligned = orig[look_back+1:look_back+1+len(testPredict)].reset_index(drop=True)
+        # Align ts for test predictions
+        ts_aligned = test_df["ts"].iloc[:len(testPredict)].reset_index(drop=True)
         result_df = pd.DataFrame({'ts': ts_aligned, 'yhat': testPredict.flatten()})
         return result_df
 
@@ -213,7 +219,7 @@ class Model:
             value_name="y", 
             num_jobs=-1,  
         )
-        return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': forecast_df["timesfm"].values})
+        return pd.DataFrame({'ts': forecast_df['ds'], 'yhat': forecast_df["timesfm"]})
     
     # def time_gpt(self) -> pd.DataFrame:
     #     nixtla_train = self.df_train.copy()
