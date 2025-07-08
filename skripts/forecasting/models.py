@@ -67,17 +67,17 @@ class Model:
 
         model = pm.auto_arima(
             y_train,
-            seasonal=True, m=m,
-            d=1, D=1,                   
-            test=None, seasonal_test=None,
-            start_p=0, start_q=0, max_p=1, max_q=1,
+            seasonal=True, 
+            m=m, # length of seasonality
+            d=1, D=1,   # differentiation                
+            start_p=0, start_q=0, max_p=1, max_q=1, # auto regressive order = p, moving average = q 
             start_P=0, start_Q=0, max_P=1, max_Q=1,
-            max_order=2,
-            maxiter=4,
+            maxiter=4, # max optimization iterations per model candidate
             stepwise=True,
-            trace=False, 
+            trace=True,
             suppress_warnings=True
         )
+
         end_arima = time.time()
         duration_arima = end_arima - start_arima
         print("ARIMA Training Duration: ", duration_arima)
@@ -196,8 +196,8 @@ class Model:
 
         model.add_seasonality(
             name="intraday",
-            period=1,         
-            fourier_order=48    
+            period=1, # 1 day
+            fourier_order=48 # sinus/cos models for every 30 min
         )
 
         start = time.time()
@@ -217,10 +217,10 @@ class Model:
         df_train = self.df_train.rename(columns={"ts": "ds"})
 
         model = Prophet(
-            daily_seasonality=False,   
+            daily_seasonality=True,   
             weekly_seasonality=True,   
             yearly_seasonality=True,  
-            seasonality_mode="multiplicative"
+            seasonality_mode="multiplicative" # seasonality adapts to better to trend
         )
 
         start = time.time()
@@ -267,38 +267,6 @@ class Model:
         )
         return pd.DataFrame({'ts': forecast_df['ds'], 'yhat': forecast_df["timesfm"]})
     
-    # def time_gpt(self) -> pd.DataFrame:
-    #     nixtla_train = self.df_train.copy()
-    #     nixtla_train['unique_id'] = 'id1'
-    #     nixtla_test = self.df_test.copy()
-    #     nixtla_test['unique_id'] = 'id1'
-        
-    #     print("Nixtla DataFrame: ", nixtla_train.head())
-
-    #     load_dotenv()
-    #     nixtla_client = NixtlaClient(
-    #         api_key=os.getenv('NIXTLA_API_KEY')
-    #     )
-
-    #     print(nixtla_client.validate_api_key())
-
-    #     print("Starting TimeGPT Training...\n")
-    #     start_gpt = time.time()
-    #     timegpt_fcst_df = nixtla_client.forecast(
-    #         df=nixtla_train,
-    #         model='timegpt-1-long-horizon',
-    #         id_col='unique_id',
-    #         h=len(self.df_test),
-    #         #freq='30min',
-    #         time_col='ts',
-    #         target_col='y',
-    #         finetune_steps=10
-    #     )
-    #     end_gpt = time.time()
-    #     period_gpt = end_gpt - start_gpt
-    #     print("Nixtla Prediction Time: ", period_gpt)
-
-    #     return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': timegpt_fcst_df['TimeGPT'].values}) 
 
     def time_gpt(self, freq: str) -> pd.DataFrame:
         train_df = (self.df_train
@@ -313,14 +281,14 @@ class Model:
         horizon = len(self.df_test)                  
         fcst = nixtla_client.forecast(
             df=train_df,
-            h=horizon,
+            h=horizon, # prediction length
             freq=freq,                            
-            id_col="unique_id",
+            id_col="unique_id", # suggested to keep them in one "group"
             time_col="ds",
             target_col="y",
             model="timegpt-1",                       
-            finetune_steps=100,                      
-            finetune_depth=2,
+            finetune_steps=100, # number of fine-tuning steps (optimizer updates)           
+            finetune_depth=2, # Amount of layer to unfreeze
             finetune_loss="mape"
         )
 
@@ -328,8 +296,6 @@ class Model:
             "ts":   self.df_test["ts"],
             "yhat": fcst["TimeGPT"].values
         })
-
-
 
 #-------------------------------------------------------
 #--------------Helper Methods----------------------------
