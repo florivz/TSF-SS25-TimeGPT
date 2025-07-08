@@ -134,8 +134,8 @@ class Model:
         return result_df
 
     
-    def prophet(self) -> pd.DataFrame:
-        df_train = self.df_train.rename(columns={"ts": "ds"})  # y bleibt y
+    def prophet_interday(self) -> pd.DataFrame:
+        df_train = self.df_train.rename(columns={"ts": "ds"})  
 
         model = Prophet(
             daily_seasonality=False,  
@@ -158,6 +158,29 @@ class Model:
 
         return pd.DataFrame({
             "ts":   fcst["ds"],     
+            "yhat": fcst["yhat"]
+        })
+    
+    def prophet_daily(self) -> pd.DataFrame:
+        df_train = self.df_train.rename(columns={"ts": "ds"})
+
+        model = Prophet(
+            daily_seasonality=False,   
+            weekly_seasonality=True,   
+            yearly_seasonality=True,  
+            seasonality_mode="multiplicative"
+        )
+
+        start = time.time()
+        model.fit(df_train)
+        print(f"Prophet training: {time.time() - start:.1f}s")
+
+        future = pd.DataFrame({"ds": self.df_test["ts"]})
+
+        fcst = model.predict(future)
+
+        return pd.DataFrame({
+            "ts":   fcst["ds"],
             "yhat": fcst["yhat"]
         })
 
@@ -225,7 +248,7 @@ class Model:
 
     #     return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': timegpt_fcst_df['TimeGPT'].values}) 
 
-    def time_gpt(self) -> pd.DataFrame:
+    def time_gpt(self, freq: str) -> pd.DataFrame:
         train_df = (self.df_train
                     .rename(columns={"ts": "ds", "y": "y"})
                     .assign(unique_id="series_1")
