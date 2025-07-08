@@ -267,7 +267,6 @@ class Model:
         )
         return pd.DataFrame({'ts': forecast_df['ds'], 'yhat': forecast_df["timesfm"]})
     
-
     def time_gpt(self, freq: str) -> pd.DataFrame:
         train_df = (self.df_train
                     .rename(columns={"ts": "ds", "y": "y"})
