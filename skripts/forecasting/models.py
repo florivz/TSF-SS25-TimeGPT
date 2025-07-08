@@ -135,22 +135,32 @@ class Model:
 
     
     def prophet(self) -> pd.DataFrame:
-        # Split into train and test using the same indices as before
-        df_train_prophet = self.df_train.rename(columns={'ts': 'ds'})
+        df_train = self.df_train.rename(columns={"ts": "ds"})  # y bleibt y
 
-        # Fit Prophet model
-        prophet_model = Prophet(yearly_seasonality='auto', daily_seasonality='auto', weekly_seasonality='auto', growth='flat')
+        model = Prophet(
+            daily_seasonality=False,  
+            weekly_seasonality=True,
+        )
 
-        start_prophet = time.time()
-        prophet_model.fit(df_train_prophet)
-        end_prophet = time.time()
-        duration_prophet = end_prophet - start_prophet
-        print('Prophet Training duration: ', duration_prophet)
+        model.add_seasonality(
+            name="intraday",
+            period=1,         
+            fourier_order=48    
+        )
 
-        # Forecast
-        future = prophet_model.make_future_dataframe(periods=len(self.df_test), include_history=False)
-        fcst = prophet_model.predict(future)
-        return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': fcst['yhat'].values}) 
+        start = time.time()
+        model.fit(df_train)
+        print(f"Prophet Training duration: {time.time()-start:.1f}s")
+
+        future = pd.DataFrame({"ds": self.df_test["ts"]})
+
+        fcst = model.predict(future)
+
+        return pd.DataFrame({
+            "ts":   fcst["ds"],     
+            "yhat": fcst["yhat"]
+        })
+
     
     def times_fm(self, freq, num_layers=50, checkpoint="google/timesfm-2.0-500m-pytorch", context_len=512, use_positional_embedding=False) -> pd.DataFrame:
         df_train_fm = self.df_train.copy()
@@ -182,41 +192,72 @@ class Model:
         )
         return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': forecast_df["timesfm"].values})
     
-    def time_gpt(self) -> pd.DataFrame:
-        nixtla_train = self.df_train.copy()
-        nixtla_train['unique_id'] = 'id1'
-        nixtla_test = self.df_test.copy()
-        nixtla_test['unique_id'] = 'id1'
+    # def time_gpt(self) -> pd.DataFrame:
+    #     nixtla_train = self.df_train.copy()
+    #     nixtla_train['unique_id'] = 'id1'
+    #     nixtla_test = self.df_test.copy()
+    #     nixtla_test['unique_id'] = 'id1'
         
-        print("Nixtla DataFrame: ", nixtla_train.head())
+    #     print("Nixtla DataFrame: ", nixtla_train.head())
+
+    #     load_dotenv()
+    #     nixtla_client = NixtlaClient(
+    #         api_key=os.getenv('NIXTLA_API_KEY')
+    #     )
+
+    #     print(nixtla_client.validate_api_key())
+
+    #     print("Starting TimeGPT Training...\n")
+    #     start_gpt = time.time()
+    #     timegpt_fcst_df = nixtla_client.forecast(
+    #         df=nixtla_train,
+    #         model='timegpt-1-long-horizon',
+    #         id_col='unique_id',
+    #         h=len(self.df_test),
+    #         #freq='30min',
+    #         time_col='ts',
+    #         target_col='y',
+    #         finetune_steps=10
+    #     )
+    #     end_gpt = time.time()
+    #     period_gpt = end_gpt - start_gpt
+    #     print("Nixtla Prediction Time: ", period_gpt)
+
+    #     return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': timegpt_fcst_df['TimeGPT'].values}) 
+
+    def time_gpt(self) -> pd.DataFrame:
+        train_df = (self.df_train
+                    .rename(columns={"ts": "ds", "y": "y"})
+                    .assign(unique_id="series_1")
+                    .sort_values("ds")
+                    .reset_index(drop=True))
 
         load_dotenv()
-        nixtla_client = NixtlaClient(
-            api_key=os.getenv('NIXTLA_API_KEY')
+        nixtla_client = NixtlaClient(api_key=os.getenv("NIXTLA_API_KEY"))
+
+        horizon = len(self.df_test)                  
+        fcst = nixtla_client.forecast(
+            df=train_df,
+            h=horizon,
+            freq="30min",                            
+            id_col="unique_id",
+            time_col="ds",
+            target_col="y",
+            model="timegpt-1",                       
+            finetune_steps=100,                      
+            finetune_depth=2,
+            finetune_loss="mape"
         )
 
-        print(nixtla_client.validate_api_key())
+        return pd.DataFrame({
+            "ts":   self.df_test["ts"],
+            "yhat": fcst["TimeGPT"].values
+        })
 
-        print("Starting TimeGPT Training...\n")
-        start_gpt = time.time()
-        timegpt_fcst_df = nixtla_client.forecast(
-            df=nixtla_train,
-            model='timegpt-1-long-horizon',
-            id_col='unique_id',
-            h=len(self.df_test),
-            #freq='30min',
-            time_col='ts',
-            target_col='y',
-            finetune_steps=10
-        )
-        end_gpt = time.time()
-        period_gpt = end_gpt - start_gpt
-        print("Nixtla Prediction Time: ", period_gpt)
 
-        return pd.DataFrame({'ts': self.df_test['ts'], 'yhat': timegpt_fcst_df['TimeGPT'].values}) 
 
 #-------------------------------------------------------
-#--------------Helper Method----------------------------
+#--------------Helper Methods----------------------------
 #-------------------------------------------------------
     def health_check(self, df, ts_col="ts", y_col="y"):
         df = self.df.copy()
