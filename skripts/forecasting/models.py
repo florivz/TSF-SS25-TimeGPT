@@ -138,6 +138,52 @@ class Model:
         ts_aligned = test_df["ts"].iloc[:len(testPredict)].reset_index(drop=True)
         result_df = pd.DataFrame({'ts': ts_aligned, 'yhat': testPredict.flatten()})
         return result_df
+    
+    def LSTM_forecast_future(self, input_width=None, epoch=2) -> pd.DataFrame:
+        """
+        Predict future values using LSTM when test_df only has timestamps (no y values).
+        Trains on df_train and predicts for the timestamps in df_test.
+        """
+        train_df = self.df_train
+        test_df = self.df_test
+
+        all_y_train = train_df["y"].values.reshape(-1, 1)
+        scaler = MinMaxScaler(feature_range=(0, 1))
+        train_scaled = scaler.fit_transform(all_y_train)
+
+        look_back = input_width or 240
+
+        def create_dataset(dataset, look_back=1):
+            dataX, dataY = [], []
+            for i in range(len(dataset) - look_back):
+                a = dataset[i:(i + look_back), 0]
+                dataX.append(a)
+                dataY.append(dataset[i + look_back, 0])
+            return np.array(dataX), np.array(dataY)
+
+        trainX, trainY = create_dataset(train_scaled, look_back)
+        trainX = np.reshape(trainX, (trainX.shape[0], trainX.shape[1], 1))
+
+        model = Sequential()
+        model.add(LSTM(25, input_shape=(look_back, 1)))
+        model.add(Dropout(0.1))
+        model.add(Dense(1))
+        model.compile(loss='mse', optimizer='adam')
+        model.fit(trainX, trainY, epochs=epoch, batch_size=240, verbose=1)
+
+        last_sequence = train_scaled[-look_back:].reshape(1, look_back, 1)
+        predictions = []
+        for _ in range(len(test_df)):
+            next_pred = model.predict(last_sequence, verbose=0)
+            predictions.append(next_pred[0, 0])
+            last_sequence = np.concatenate([last_sequence[:, 1:, :], next_pred.reshape(1, 1, 1)], axis=1)
+
+        predictions = np.array(predictions).reshape(-1, 1)
+        predictions = scaler.inverse_transform(predictions)
+
+        ts_aligned = test_df["ts"].reset_index(drop=True)
+        result_df = pd.DataFrame({'ts': ts_aligned, 'yhat': predictions.flatten()})
+        return result_df
 
     
     def prophet_interday(self) -> pd.DataFrame:
@@ -268,7 +314,7 @@ class Model:
         fcst = nixtla_client.forecast(
             df=train_df,
             h=horizon,
-            freq="30min",                            
+            freq=freq,                            
             id_col="unique_id",
             time_col="ds",
             target_col="y",
