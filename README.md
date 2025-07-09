@@ -26,13 +26,15 @@ TimeGPT foundation model by Nixtla
 
 
 ### Conclusion
-<b>LSTMs</b> can model complex, nonlinear relationships in data, outperforming traditional linear models. It is important to choose appropriate window size. Too short may miss important context, too long may introduce noise or increase computation. It is evident that with enough data and proper regularization, LSTMs can learn to ignore noise and focus on underlying patterns. However, with limited and too noisy data, LSTM may fail to learn patterns.
+<b>LSTMs</b> can model complex, nonlinear relationships in data, outperforming traditional linear models. It is evident that with enough data and proper regularization, LSTMs can learn to ignore noise and focus on underlying patterns. However, with limited and too noisy data, LSTM may fail to learn patterns.
 
-- In the egg sales case, the LSTM forecast is smoother than the actual, which is very noisy. It means that LSTM learnt to ignore some noise and follow the actual data.
+Prophet and ARIMA models are good for interday data and also good in learning to ignore noise.
 
-- In the electricity demand case, the LSTM closely follows the up-and-down trend. It doesn't have much noise, so the model learnt pretty well.
+- In the egg sales case, the LSTM forecast is smoother than the actual, which is very noisy.
 
-- In the saugeedday data case, the actual data has extreme spikes that the LSTM fails to fully predict. It means that LSTM is bad in predicting rare events and fails to see seasonality in the spikes.
+- In the electricity demand case, where the data doesn't have much noise the LSTM closely follows the up-and-down trend, while the ARIMA and Prophet models showed better results.
+
+- In the saugeedday data case, the actual data has extreme spikes that the LSTM fails to fully predict.
 
 
 ## TimeGPT Evaluation
